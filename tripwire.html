@@ -44,6 +44,7 @@
   .toolbar button:hover, .toolbar label:hover {
     background: #0f3460;
   }
+  .toolbar button:disabled { opacity: 0.35; cursor: default; background: #16213e; }
   .toolbar .filename {
     color: #e94560;
     font-size: 13px;
@@ -52,39 +53,69 @@
   }
   #fileInput { display: none; }
 
-  .pattern-nav {
+  /* editor on the left, pattern library on the right (below on narrow screens) */
+  .workspace {
     display: flex;
-    gap: 4px;
+    gap: 24px;
     justify-content: center;
-    margin-bottom: 16px;
+    align-items: flex-start;
     flex-wrap: wrap;
   }
-  .pattern-nav button {
-    background: #16213e;
-    color: #e0e0e0;
-    border: 1px solid #0f3460;
-    width: 36px;
-    height: 28px;
-    cursor: pointer;
-    font-family: inherit;
-    font-size: 11px;
-    border-radius: 3px;
-    transition: background 0.15s;
-  }
-  .pattern-nav button:hover { background: #0f3460; }
-  .pattern-nav button.active {
-    background: #e94560;
-    border-color: #e94560;
-    color: #fff;
-  }
-  .pattern-nav button.has-data {
-    border-bottom: 2px solid #53d769;
-  }
-
   .grid-container {
     overflow-x: auto;
+    max-width: 100%;
     margin-bottom: 20px;
   }
+
+  /* pattern library: one column of 24 thumbnails per track */
+  .library {
+    display: grid;
+    grid-template-columns: 22px repeat(6, 52px);
+    gap: 3px;
+    align-items: center;
+    font-size: 9px;
+  }
+  .lib-head {
+    text-align: center;
+    font-weight: bold;
+    letter-spacing: 0.5px;
+  }
+  .lib-head select {
+    width: 100%;
+    margin-top: 2px;
+    background: #16213e;
+    color: #a0a0c0;
+    border: 1px solid #0f3460;
+    font-family: inherit;
+    font-size: 9px;
+    border-radius: 3px;
+    cursor: pointer;
+  }
+  .lib-row {
+    background: none;
+    border: none;
+    color: #555;
+    font-family: inherit;
+    font-size: 9px;
+    cursor: pointer;
+    padding: 0;
+    height: 100%;
+  }
+  .lib-row:hover { color: #e0e0e0; }
+  .lib-row.active { color: #e94560; font-weight: bold; }
+  .thumb {
+    display: block;
+    width: 52px;
+    height: 20px;
+    background: #111a33;
+    border-radius: 2px;
+    cursor: pointer;
+  }
+  .thumb.empty { opacity: 0.45; }
+  .thumb:hover { outline: 1px solid #a0a0c0; }
+  .thumb.active { outline: 2px solid var(--track-color); outline-offset: 1px; opacity: 1; }
+  .thumb.drop-before { box-shadow: 0 -3px 0 #fff; }
+  .thumb.drop-after { box-shadow: 0 3px 0 #fff; }
   .track-section {
     margin-bottom: 12px;
   }
@@ -119,7 +150,7 @@
   .track-label.has-sample {
     color: #53d769;
   }
-  .track-label .sample-name {
+  .track-label .label-info {
     display: block;
     font-size: 8px;
     font-weight: normal;
@@ -174,7 +205,7 @@
     margin-bottom: 4px;
     margin-top: 2px;
   }
-  .track-controls button {
+  .track-controls button, .track-tools button {
     background: #16213e;
     color: #a0a0c0;
     border: 1px solid #0f3460;
@@ -184,7 +215,26 @@
     font-size: 10px;
     border-radius: 3px;
   }
-  .track-controls button:hover { background: #0f3460; color: #e0e0e0; }
+  .track-controls button:hover, .track-tools button:hover { background: #0f3460; color: #e0e0e0; }
+  /* per-track copy/paste/clear and Strudel field, right of each track's first row */
+  .track-tools {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    margin-left: 10px;
+  }
+  .strudel-input {
+    width: 130px;
+    background: #111a33;
+    color: #e0e0e0;
+    border: 1px solid #0f3460;
+    padding: 3px 6px;
+    font-family: inherit;
+    font-size: 11px;
+    border-radius: 3px;
+  }
+  .strudel-input::placeholder { color: #444; }
+  .strudel-input:focus { outline: none; border-color: #e94560; }
   .track-controls label {
     font-size: 10px;
     color: #666;
@@ -294,6 +344,9 @@
   <button id="saveBtn">Save File</button>
   <span class="filename" id="filenameDisplay">No file loaded</span>
   <span style="color:#333">|</span>
+  <button id="undoBtn" title="Undo (Cmd/Ctrl+Z)" disabled>Undo</button>
+  <button id="redoBtn" title="Redo (Shift+Cmd/Ctrl+Z)" disabled>Redo</button>
+  <span style="color:#333">|</span>
   <button id="playBtn">Play</button>
   <label style="font-size:13px; color:#a0a0c0;">BPM</label>
   <input type="number" id="bpmInput" value="120" min="40" max="999" style="
@@ -301,41 +354,16 @@
     padding:6px 4px; font-family:inherit; font-size:13px; border-radius:4px; text-align:center;">
 </div>
 
-<div class="toolbar" style="margin-top:-8px;">
-  <label style="font-size:13px; color:#a0a0c0;">Shuffle</label>
-  <select id="shuffleSel" style="background:#16213e; color:#e0e0e0; border:1px solid #0f3460; padding:6px 8px; font-family:inherit; font-size:13px; border-radius:4px;">
-    <option value="4">4 — Even</option>
-    <option value="5">5 — Wide gap</option>
-    <option value="6">6 — Larger gap</option>
-    <option value="7">7 — Last rushed</option>
-    <option value="8">8 — Beg/end rushed</option>
-    <option value="9">9 — Mid gap</option>
-  </select>
-  <label style="font-size:13px; color:#a0a0c0;">Timing</label>
-  <select id="timingSel" style="background:#16213e; color:#e0e0e0; border:1px solid #0f3460; padding:6px 8px; font-family:inherit; font-size:13px; border-radius:4px;">
-    <option value="straight">Straight</option>
-    <option value="trip">Trip</option>
-    <option value="shake">Shake</option>
-    <option value="push">Push</option>
-    <option value="clave">Clave</option>
-  </select>
-  <label style="font-size:13px; color:#a0a0c0;">Feeling</label>
-  <select id="feelingSel" style="background:#16213e; color:#e0e0e0; border:1px solid #0f3460; padding:6px 8px; font-family:inherit; font-size:13px; border-radius:4px;">
-    <option value="tight">Tight</option>
-    <option value="rolls">Rolls</option>
-    <option value="flam">Flam</option>
-    <option value="slop">Slop</option>
-  </select>
-</div>
-
-<div class="pattern-nav" id="patternNav"></div>
-
-<div class="grid-container" id="gridContainer"></div>
-
-<div class="actions">
-  <button id="copyBtn">Copy Pattern</button>
-  <button id="pasteBtn">Paste Pattern</button>
-  <button id="clearBtn" class="danger">Clear Pattern</button>
+<div class="workspace">
+  <div>
+    <div class="grid-container" id="gridContainer"></div>
+    <div class="actions">
+      <button id="copyBtn" title="Copy the six patterns shown in the editor">Copy all tracks</button>
+      <button id="pasteBtn" title="Paste into the six patterns shown in the editor">Paste all tracks</button>
+      <button id="clearBtn" class="danger" title="Clear the six patterns shown in the editor">Clear all tracks</button>
+    </div>
+  </div>
+  <div class="library" id="library"></div>
 </div>
 
 <div class="status" id="status"></div>
@@ -343,13 +371,26 @@
 <div style="max-width:720px; margin:24px auto 0; padding:16px 20px; background:#16213e; border:1px solid #0f3460; border-radius:6px; font-size:12px; line-height:1.6; color:#a0a0c0;">
   <b style="color:#e94560;">How to use</b><br>
   <b>Load / Save:</b> Load a Stolperbeats <code>.txt</code> pattern bank file, edit patterns, then save back to <code>.txt</code> for loading onto the hardware via SD card.<br>
-  <b>Patterns:</b> Click the numbered buttons to switch between the 24 patterns. Buttons with a <span style="color:#53d769">green</span> underline contain data.<br>
-  <b>Steps:</b> Click a step to toggle it on/off. Kick and Snare have 64 steps (shown as 4 rows of 16); HiHat and Perc tracks have 16 steps.<br>
+  <b>Patterns:</b> As on the module, every track has its own 24 patterns and plays one of them. The pattern library on the right shows them all: click a thumbnail to make it that track's active pattern &mdash; it plays and appears in the editor. Click a row number to switch all tracks to that pattern.<br>
+  <b>Arrange:</b> Drag a thumbnail up or down to move it; the patterns in between shift along. The <b>sort</b> menu above a column orders that track by <em>energy</em> (number of hits, off-beat hits count a bit more) or <em>similarity</em> (patterns that differ in the fewest steps end up next to each other). Empty patterns go to the end. Moving patterns changes their numbers in the saved file.<br>
+  <b>Steps:</b> Click a step to toggle it on/off, or drag across steps to paint. Kick and Snare have 64 steps (shown as 4 rows of 16); HiHat and Perc tracks have 16 steps.<br>
   <b>Track length:</b> Kick and Snare tracks can be set to shorter lengths (4/8/16/32) &mdash; the remaining steps are dimmed and always hold repeats of the loop, which is what gets saved (the hardware plays all 64 steps). Loaded patterns that repeat every 16 or 32 steps open at that length. Shortening a track whose later steps differ asks before overwriting them.<br>
   <b>Mute:</b> Click the <b>M</b> button next to a track to mute it during playback.<br>
   <b>Choke:</b> HiHat1 and HiHat2 share a choke group &mdash; triggering one cuts off the other.<br>
   <b>Fill x4:</b> For 64-step tracks (Kick, Snare) &mdash; copies the first 16 steps into all remaining slots (17&ndash;64). <em>This overwrites whatever was in those slots</em>, so use it to quickly tile a 16-step idea across the full bar.<br>
-  <b>Copy / Paste:</b> Copy the current pattern and paste it into another pattern slot.
+  <b>Copy / Paste:</b> <b>copy</b>, <b>paste</b> and <b>clear</b> next to a track act on its active pattern; you can paste into another pattern or another track. A 16-step pattern pasted into Kick or Snare loops at length 16; a 64-step pattern pasted into a 16-step track keeps its first 16 steps. <b>Copy / Paste / Clear all tracks</b> below the editor act on all six patterns shown.<br>
+  <b>Undo:</b> Undo and Redo (Cmd/Ctrl+Z, Shift+Cmd/Ctrl+Z) cover every pattern edit, including moving, sorting, generating and loading.<br>
+  <b>Preview timing:</b> Playback uses straight 16ths. The module's Shuffle, Timing and Feeling aren't simulated yet.
+
+  <details style="margin-top:10px">
+    <summary style="cursor:pointer; color:#888">Generating patterns with Strudel syntax</summary>
+    <div style="margin-top:6px; padding-left:10px; border-left:2px solid #0f3460;">
+      Type a pattern in <a href="https://strudel.cc" target="_blank" style="color:#a0a0c0;">Strudel</a>'s mini-notation into the field next to a track and press Enter. It replaces the track's active pattern (Undo brings it back).<br>
+      Any word is a hit (sound names don't matter), <code>~</code> is a rest. One cycle is one 16-step bar; Kick and Snare render four cycles, so <code>&lt;&nbsp;&gt;</code> can vary the bars. Hits that fall between steps (e.g. triplets) are moved to the nearest step.<br>
+      Examples: <code>bd*4</code> &middot; <code>~ sd ~ sd</code> &middot; <code>hh*8?</code> &middot; <code>bd(3,8)</code> &middot; <code>bd(5,8,2)</code> &middot; <code>[bd ~ bd] ~ bd ~</code> &middot; <code>&lt;[bd ~ bd ~] [bd*2 ~ bd ~]&gt;</code> &middot; <code>[bd*4, ~ bd]</code><br>
+      Supported: sequences, <code>~</code>/<code>-</code> rests, <code>[ ]</code> groups, <code>&lt; &gt;</code> alternation, <code>,</code> layers, <code>*n</code> <code>/n</code>, <code>!</code> <code>!n</code> repeat, <code>@n</code> <code>_</code> elongation, <code>(hits,steps,rotation)</code> Euclidean rhythms, <code>?</code> <code>?0.3</code> random drop. Pasting a whole Strudel call like <code>s("bd sd")</code> uses the quoted part.
+    </div>
+  </details>
 
   <details style="margin-top:10px">
     <summary style="cursor:pointer; color:#888">Sound and custom samples</summary>
@@ -362,33 +403,30 @@
     </div>
   </details>
 
-  <details style="margin-top:10px">
-    <summary style="cursor:pointer; color:#888">Shuffle parameters</summary>
-    <div style="margin-top:6px; padding-left:10px; border-left:2px solid #0f3460;">
-      <b>Shuffle (4&ndash;9):</b> selects which of the 6 Stolperbeats shuffle patterns to use. Each shifts the micro-timing of the 8 sixteenths in every half bar.<br>
-      <b>Timing:</b> Straight, Trip, Shake, Push, Clave &mdash; sets the rhythmic feel (triplet, swing, push, clave groove).<br>
-      <b>Feeling:</b> Tight, Rolls, Flam, Slop &mdash; controls how precisely hits land on the grid.<br>
-      <em>These parameters are for the audio preview only and are not saved in the exported <code>.txt</code> file &mdash; on the hardware, shuffle is set directly on the module.</em>
-    </div>
-  </details>
 </div>
 
 <div style="text-align:center; margin-top:12px; font-size:11px; color:#555;">Built by a human and a Claude.</div>
 
 <script>
+// color matches the .track-* step colors in the CSS
 const TRACKS = [
-  { name: 'KICK',   steps: 64, groups: 4 },
-  { name: 'SNARE',  steps: 64, groups: 4 },
-  { name: 'HIHAT1', steps: 16, groups: 1 },
-  { name: 'HIHAT2', steps: 16, groups: 1 },
-  { name: 'PERC1',  steps: 16, groups: 1 },
-  { name: 'PERC2',  steps: 16, groups: 1 },
+  { name: 'KICK',   steps: 64, groups: 4, color: '#e94560' },
+  { name: 'SNARE',  steps: 64, groups: 4, color: '#f5a623' },
+  { name: 'HIHAT1', steps: 16, groups: 1, color: '#53d769' },
+  { name: 'HIHAT2', steps: 16, groups: 1, color: '#4fc3f7' },
+  { name: 'PERC1',  steps: 16, groups: 1, color: '#ab47bc' },
+  { name: 'PERC2',  steps: 16, groups: 1, color: '#ff7043' },
 ];
 
 const NUM_PATTERNS = 24;
-let currentPattern = 0;
+// as on the module, each track plays its own pattern: activePattern[trackIndex]
+let activePattern = [];
 let currentFilename = null;
-let clipboard = null;
+// one track's pattern (per-track copy) and all six shown patterns (copy all tracks)
+let trackClipboard = null;
+let setClipboard = null;
+// Strudel field contents per track, kept across grid rebuilds
+let strudelText = ['', '', '', '', '', ''];
 // unsaved edits since the last load/save
 let dirty = false;
 
@@ -468,10 +506,22 @@ function initData() {
   TRACKS.forEach((t, ti) => {
     if (t.steps === 64) trackLength[ti] = new Array(NUM_PATTERNS).fill(64);
   });
+  activePattern = TRACKS.map(() => 0);
+}
+
+// the pattern a track currently plays and shows in the editor
+function activeSteps(trackIndex) {
+  return data[trackIndex][activePattern[trackIndex]];
+}
+
+// replace a track's active pattern; len only matters for 64-step tracks
+function setActiveSteps(trackIndex, steps, len) {
+  data[trackIndex][activePattern[trackIndex]] = steps;
+  if (trackLength[trackIndex]) trackLength[trackIndex][activePattern[trackIndex]] = len;
 }
 
 // loop length of a track in a pattern (16-step tracks are always 16)
-function getLen(trackIndex, ptn = currentPattern) {
+function getLen(trackIndex, ptn = activePattern[trackIndex]) {
   return TRACKS[trackIndex].steps === 64 ? trackLength[trackIndex][ptn] : TRACKS[trackIndex].steps;
 }
 
@@ -487,29 +537,292 @@ function isPeriodic(steps, len) {
 
 initData();
 
-// --- Pattern Nav ---
-function buildPatternNav() {
-  const nav = document.getElementById('patternNav');
-  nav.innerHTML = '';
-  for (let i = 0; i < NUM_PATTERNS; i++) {
-    const btn = document.createElement('button');
-    btn.textContent = i;
-    btn.dataset.ptn = i;
-    if (i === currentPattern) btn.classList.add('active');
-    if (patternHasData(i)) btn.classList.add('has-data');
-    btn.addEventListener('click', () => selectPattern(i));
-    nav.appendChild(btn);
-  }
+// --- Undo ---
+// snapshots of all pattern data, taken before each edit
+let undoStack = [];
+let redoStack = [];
+
+function snapshot() {
+  return JSON.stringify({ data, trackLength, activePattern });
 }
 
-function patternHasData(ptn) {
-  return TRACKS.some((_, ti) => data[ti][ptn].some(v => v === 1));
+function restore(snap) {
+  ({ data, trackLength, activePattern } = JSON.parse(snap));
 }
 
-function selectPattern(ptn) {
-  currentPattern = ptn;
-  buildPatternNav();
+// call right before changing pattern data: records an undo step and marks the bank unsaved
+function beginEdit() {
+  undoStack.push(snapshot());
+  if (undoStack.length > 100) undoStack.shift();
+  redoStack = [];
+  dirty = true;
+  updateUndoButtons();
+}
+
+function undo() {
+  if (!undoStack.length) return;
+  redoStack.push(snapshot());
+  restore(undoStack.pop());
+  dirty = true;
+  refreshAll();
+  showStatus('Undo');
+}
+
+function redo() {
+  if (!redoStack.length) return;
+  undoStack.push(snapshot());
+  restore(redoStack.pop());
+  dirty = true;
+  refreshAll();
+  showStatus('Redo');
+}
+
+function updateUndoButtons() {
+  document.getElementById('undoBtn').disabled = !undoStack.length;
+  document.getElementById('redoBtn').disabled = !redoStack.length;
+}
+
+function refreshAll() {
   buildGrid();
+  refreshLibrary();
+  updateUndoButtons();
+}
+
+document.getElementById('undoBtn').addEventListener('click', undo);
+document.getElementById('redoBtn').addEventListener('click', redo);
+
+document.addEventListener('keydown', (e) => {
+  // leave text fields their own undo
+  if (!(e.metaKey || e.ctrlKey) || e.target.closest('input, select, textarea')) return;
+  const key = e.key.toLowerCase();
+  if (key === 'z' && !e.shiftKey) { e.preventDefault(); undo(); }
+  else if ((key === 'z' && e.shiftKey) || key === 'y') { e.preventDefault(); redo(); }
+});
+
+// --- Pattern library: every track's 24 patterns as thumbnails ---
+const THUMB_W = 52, THUMB_H = 20;
+let thumbCanvases = [];   // thumbCanvases[trackIndex][ptn], one per slot
+let thumbDrag = null;     // { track, ptn } while a thumbnail is being dragged
+
+function buildLibrary() {
+  const lib = document.getElementById('library');
+  lib.innerHTML = '';
+  lib.appendChild(document.createElement('div'));   // corner above the row numbers
+  TRACKS.forEach((track, ti) => {
+    const head = document.createElement('div');
+    head.className = 'lib-head';
+    const name = document.createElement('div');
+    name.textContent = track.name;
+    name.style.color = track.color;
+    const sort = document.createElement('select');
+    sort.title = `Sort ${track.name} patterns`;
+    [['', 'sort'], ['energy', 'energy'], ['similarity', 'similar']].forEach(([value, text]) => {
+      const opt = document.createElement('option');
+      opt.value = value;
+      opt.textContent = text;
+      sort.appendChild(opt);
+    });
+    sort.addEventListener('change', () => {
+      if (sort.value) sortTrack(ti, sort.value);
+      sort.value = '';
+    });
+    head.append(name, sort);
+    lib.appendChild(head);
+  });
+
+  thumbCanvases = TRACKS.map(() => []);
+  for (let p = 0; p < NUM_PATTERNS; p++) {
+    const rowBtn = document.createElement('button');
+    rowBtn.className = 'lib-row';
+    rowBtn.textContent = p;
+    rowBtn.dataset.ptn = p;
+    rowBtn.title = `Switch all tracks to pattern ${p}`;
+    rowBtn.addEventListener('click', () => selectAllTracks(p));
+    lib.appendChild(rowBtn);
+    TRACKS.forEach((_, ti) => lib.appendChild(buildThumb(ti, p)));
+  }
+  refreshLibrary();
+}
+
+function buildThumb(ti, ptn) {
+  const c = document.createElement('canvas');
+  const dpr = window.devicePixelRatio || 1;
+  c.className = 'thumb';
+  c.width = THUMB_W * dpr;
+  c.height = THUMB_H * dpr;
+  c.style.setProperty('--track-color', TRACKS[ti].color);
+  c.title = `${TRACKS[ti].name} pattern ${ptn}: click to play and edit, drag to move`;
+  c.draggable = true;
+  c.addEventListener('click', () => selectTrackPattern(ti, ptn));
+
+  // drag to reorder within the same track
+  c.addEventListener('dragstart', (e) => {
+    thumbDrag = { track: ti, ptn };
+    e.dataTransfer.effectAllowed = 'move';
+    e.dataTransfer.setData('text/plain', `${TRACKS[ti].name} ${ptn}`);
+  });
+  c.addEventListener('dragend', () => {
+    thumbDrag = null;
+    clearDropMarks();
+  });
+  c.addEventListener('dragover', (e) => {
+    if (!thumbDrag || thumbDrag.track !== ti) {
+      e.dataTransfer.dropEffect = 'none';
+      return;
+    }
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+    clearDropMarks();
+    c.classList.add(isDropAfter(e, c) ? 'drop-after' : 'drop-before');
+  });
+  c.addEventListener('drop', (e) => {
+    e.preventDefault();
+    if (!thumbDrag || thumbDrag.track !== ti) return;
+    movePattern(ti, thumbDrag.ptn, ptn, isDropAfter(e, c));
+  });
+
+  thumbCanvases[ti][ptn] = c;
+  return c;
+}
+
+function isDropAfter(e, el) {
+  const r = el.getBoundingClientRect();
+  return e.clientY > r.top + r.height / 2;
+}
+
+function clearDropMarks() {
+  document.querySelectorAll('.thumb.drop-before, .thumb.drop-after')
+    .forEach(el => el.classList.remove('drop-before', 'drop-after'));
+}
+
+// miniature of the editor: 4 rows of 16 for Kick/Snare, one row for the rest
+function drawThumb(ti, ptn) {
+  const c = thumbCanvases[ti][ptn];
+  const ctx = c.getContext('2d');
+  const dpr = c.width / THUMB_W;
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.clearRect(0, 0, THUMB_W, THUMB_H);
+  const steps = data[ti][ptn];
+  const len = getLen(ti, ptn);
+  const cw = THUMB_W / 16;
+  const rh = THUMB_H / (steps.length / 16);
+  steps.forEach((v, i) => {
+    ctx.fillStyle = v ? TRACKS[ti].color : '#1f2b4d';
+    ctx.globalAlpha = i >= len ? 0.35 : 1;   // repeats beyond the length, dimmed as in the editor
+    ctx.fillRect((i % 16) * cw + 0.5, Math.floor(i / 16) * rh + 0.5, cw - 1, rh - 1);
+  });
+  ctx.globalAlpha = 1;
+  c.classList.toggle('empty', !steps.includes(1));
+}
+
+// redraw only a track's active thumbnail (after step edits)
+function refreshThumb(ti) {
+  drawThumb(ti, activePattern[ti]);
+}
+
+function refreshLibrary() {
+  TRACKS.forEach((_, ti) => {
+    for (let p = 0; p < NUM_PATTERNS; p++) {
+      drawThumb(ti, p);
+      thumbCanvases[ti][p].classList.toggle('active', activePattern[ti] === p);
+    }
+  });
+  document.querySelectorAll('#library .lib-row').forEach(btn => {
+    const p = parseInt(btn.dataset.ptn);
+    btn.classList.toggle('active', activePattern.every(a => a === p));
+  });
+}
+
+function selectTrackPattern(ti, ptn) {
+  activePattern[ti] = ptn;
+  buildGrid();
+  refreshLibrary();
+}
+
+function selectAllTracks(ptn) {
+  activePattern = TRACKS.map(() => ptn);
+  buildGrid();
+  refreshLibrary();
+}
+
+// --- Reordering and sorting ---
+// order[newSlot] = old slot; the active pattern follows its content
+function applyOrder(ti, order) {
+  data[ti] = order.map(p => data[ti][p]);
+  if (trackLength[ti]) trackLength[ti] = order.map(p => trackLength[ti][p]);
+  activePattern[ti] = order.indexOf(activePattern[ti]);
+  buildGrid();
+  refreshLibrary();
+}
+
+function movePattern(ti, from, target, after) {
+  let to = after ? target + 1 : target;
+  if (from < to) to--;   // taking 'from' out shifts the later slots up by one
+  if (to === from) return;
+  const order = [...Array(NUM_PATTERNS).keys()];
+  order.splice(to, 0, ...order.splice(from, 1));
+  beginEdit();
+  applyOrder(ti, order);
+  showStatus(`${TRACKS[ti].name}: moved pattern ${from} to ${to}`);
+}
+
+// hits per bar; off-beat hits count a bit more, since they make a groove feel busier
+function energy(steps) {
+  let e = 0;
+  steps.forEach((v, i) => {
+    if (v) e += i % 4 === 0 ? 1 : i % 2 === 0 ? 1.25 : 1.5;
+  });
+  return e / (steps.length / 16);
+}
+
+// chain the patterns so neighbours differ in as few steps as possible:
+// greedy from the calmest pattern, then 2-opt (reverse stretches while that shortens the chain)
+function similarityChain(ti, byEnergy) {
+  const n = byEnergy.length;
+  if (n < 3) return byEnergy;
+  const dist = byEnergy.map(a => byEnergy.map(b =>
+    data[ti][a].reduce((d, v, i) => d + (v !== data[ti][b][i] ? 1 : 0), 0)));
+  const chain = [0];
+  const rest = new Set(byEnergy.keys());
+  rest.delete(0);
+  while (rest.size) {
+    const last = chain[chain.length - 1];
+    let best = -1;
+    for (const k of rest) if (best < 0 || dist[last][k] < dist[last][best]) best = k;
+    chain.push(best);
+    rest.delete(best);
+  }
+  const link = (a, b) => (b < n ? dist[chain[a]][chain[b]] : 0);
+  let improved = true;
+  while (improved) {
+    improved = false;
+    for (let i = 1; i < n - 1; i++) {
+      for (let j = i + 1; j < n; j++) {
+        const before = link(i - 1, i) + link(j, j + 1);
+        const after = dist[chain[i - 1]][chain[j]] + (j + 1 < n ? dist[chain[i]][chain[j + 1]] : 0);
+        if (after < before) {
+          chain.splice(i, j - i + 1, ...chain.slice(i, j + 1).reverse());
+          improved = true;
+        }
+      }
+    }
+  }
+  return chain.map(k => byEnergy[k]);
+}
+
+function sortTrack(ti, mode) {
+  const slots = [...Array(NUM_PATTERNS).keys()];
+  const used = slots.filter(p => data[ti][p].includes(1));
+  const empty = slots.filter(p => !data[ti][p].includes(1));
+  const byEnergy = [...used].sort((a, b) => energy(data[ti][a]) - energy(data[ti][b]));
+  const order = (mode === 'energy' ? byEnergy : similarityChain(ti, byEnergy)).concat(empty);
+  if (order.every((p, i) => p === i)) {
+    showStatus(`${TRACKS[ti].name}: already sorted by ${mode}`);
+    return;
+  }
+  beginEdit();
+  applyOrder(ti, order);
+  showStatus(`${TRACKS[ti].name}: sorted by ${mode}`);
 }
 
 // --- Grid ---
@@ -571,7 +884,11 @@ function buildTrackRow(track, trackIndex, group) {
   row.className = `track-row track-${track.name.toLowerCase()}`;
 
   // drag & drop for samples (all rows accept drops)
-  row.addEventListener('dragover', (e) => { e.preventDefault(); row.classList.add('drag-over'); });
+  row.addEventListener('dragover', (e) => {
+    if (thumbDrag) return;   // a pattern thumbnail, not a file
+    e.preventDefault();
+    row.classList.add('drag-over');
+  });
   row.addEventListener('dragleave', () => { row.classList.remove('drag-over'); });
   row.addEventListener('drop', (e) => {
     e.preventDefault();
@@ -586,15 +903,13 @@ function buildTrackRow(track, trackIndex, group) {
   label.className = 'track-label';
 
   if (group === 0) {
-    // first row: show track name + sample info
+    // first row: show track name, active pattern and sample
     if (sampleBuffers[trackIndex]) label.classList.add('has-sample');
     label.textContent = track.name;
-    if (sampleNames[trackIndex]) {
-      const nameEl = document.createElement('span');
-      nameEl.className = 'sample-name';
-      nameEl.textContent = sampleNames[trackIndex];
-      label.appendChild(nameEl);
-    }
+    const info = document.createElement('span');
+    info.className = 'label-info';
+    info.textContent = `#${activePattern[trackIndex]}` + (sampleNames[trackIndex] ? ` ${sampleNames[trackIndex]}` : '');
+    label.appendChild(info);
     label.title = sampleNames[trackIndex] ? `Sample: ${sampleNames[trackIndex]} (right-click to remove)` : 'Drag audio file here to load sample';
     if (sampleBuffers[trackIndex]) {
       label.style.cursor = 'context-menu';
@@ -645,7 +960,7 @@ function buildTrackRow(track, trackIndex, group) {
     const btn = document.createElement('div');
     btn.className = 'step';
     if (s % 4 === 0) btn.classList.add('beat-marker');
-    if (data[trackIndex][currentPattern][stepIdx]) btn.classList.add('on');
+    if (activeSteps(trackIndex)[stepIdx]) btn.classList.add('on');
     if (stepIdx >= getLen(trackIndex)) btn.classList.add('dimmed');
     btn.dataset.track = trackIndex;
     btn.dataset.step = stepIdx;
@@ -664,7 +979,34 @@ function buildTrackRow(track, trackIndex, group) {
   steps.appendChild(stepGroup);
 
   row.appendChild(steps);
+  if (group === 0) row.appendChild(buildTrackTools(track, trackIndex));
   return row;
+}
+
+function buildTrackTools(track, trackIndex) {
+  const tools = document.createElement('div');
+  tools.className = 'track-tools';
+  [['copy', copyTrack], ['paste', pasteTrack], ['clear', clearTrack]].forEach(([text, fn]) => {
+    const btn = document.createElement('button');
+    btn.textContent = text;
+    btn.title = `${text[0].toUpperCase() + text.slice(1)} ${track.name} pattern`;
+    btn.addEventListener('click', () => fn(trackIndex));
+    tools.appendChild(btn);
+  });
+  const input = document.createElement('input');
+  input.className = 'strudel-input';
+  input.dataset.track = trackIndex;
+  input.placeholder = track.steps === 64 ? 'strudel: bd*4' : 'strudel: hh*8';
+  input.title = 'Strudel mini-notation: press Enter to generate this pattern';
+  input.spellcheck = false;
+  input.value = strudelText[trackIndex];
+  input.addEventListener('input', () => { strudelText[trackIndex] = input.value; });
+  input.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') generateFromStrudel(trackIndex, input.value);
+    if (e.key === 'Escape') input.blur();
+  });
+  tools.appendChild(input);
+  return tools;
 }
 
 function buildTrackControls(track, trackIndex) {
@@ -708,16 +1050,16 @@ function buildTrackControls(track, trackIndex) {
   sel.addEventListener('change', () => {
     const newLen = parseInt(sel.value);
     // shortening only loses data if the later steps aren't already repeats
-    if (!isPeriodic(data[trackIndex][currentPattern], newLen) &&
+    if (!isPeriodic(activeSteps(trackIndex), newLen) &&
         !confirm(`Shortening ${track.name} to ${newLen} steps overwrites steps ${newLen + 1}-64 with repeats of steps 1-${newLen}. Continue?`)) {
       sel.value = getLen(trackIndex);
       return;
     }
-    trackLength[trackIndex][currentPattern] = newLen;
+    beginEdit();
+    trackLength[trackIndex][activePattern[trackIndex]] = newLen;
     applyRepeat(trackIndex);
-    dirty = true;
     buildGrid();
-    updatePatternNav();
+    refreshThumb(trackIndex);
   });
   controls.appendChild(sel);
 
@@ -726,14 +1068,14 @@ function buildTrackControls(track, trackIndex) {
 
 function fillFromFirst16(trackIndex) {
   const len = getLen(trackIndex);
-  const steps = data[trackIndex][currentPattern];
+  beginEdit();
+  const steps = activeSteps(trackIndex);
   // fill all 64 so the dimmed repeats beyond a shorter length stay in sync
   for (let i = 16; i < 64; i++) {
     steps[i] = steps[i % 16];
   }
-  dirty = true;
   buildGrid();
-  updatePatternNav();
+  refreshThumb(trackIndex);
   const reps = len / 16;
   showStatus(`${TRACKS[trackIndex].name}: filled x${reps} from first 16 steps`);
 }
@@ -741,7 +1083,7 @@ function fillFromFirst16(trackIndex) {
 function applyRepeat(trackIndex) {
   const len = getLen(trackIndex);
   if (len >= 64) return;
-  const steps = data[trackIndex][currentPattern];
+  const steps = activeSteps(trackIndex);
   for (let i = len; i < 64; i++) {
     steps[i] = steps[i % len];
   }
@@ -749,7 +1091,7 @@ function applyRepeat(trackIndex) {
 
 // sync step cells of one track with data, without rebuilding the grid (keeps drag-painting alive)
 function refreshSteps(trackIndex) {
-  const steps = data[trackIndex][currentPattern];
+  const steps = activeSteps(trackIndex);
   document.querySelectorAll(`.step[data-track="${trackIndex}"]`).forEach(el => {
     el.classList.toggle('on', steps[parseInt(el.dataset.step)] === 1);
   });
@@ -761,42 +1103,35 @@ let dragging = null;
 function startDrag(trackIndex, btn) {
   dragging = {
     track: trackIndex,
-    value: data[trackIndex][currentPattern][parseInt(btn.dataset.step)]
+    value: activeSteps(trackIndex)[parseInt(btn.dataset.step)]
   };
 }
 
+// part of the stroke started by toggleStep, which already recorded the undo step
 function applyDrag(trackIndex, stepIdx, btn) {
-  data[trackIndex][currentPattern][stepIdx] = dragging.value;
+  activeSteps(trackIndex)[stepIdx] = dragging.value;
   btn.classList.toggle('on', dragging.value === 1);
   if (getLen(trackIndex) < 64) {
     applyRepeat(trackIndex);
     refreshSteps(trackIndex);
   }
-  dirty = true;
-  updatePatternNav();
+  refreshThumb(trackIndex);
 }
 
 document.addEventListener('mouseup', () => { dragging = null; });
 
 function toggleStep(trackIndex, stepIdx, btn) {
-  const val = data[trackIndex][currentPattern][stepIdx];
-  data[trackIndex][currentPattern][stepIdx] = val ? 0 : 1;
+  beginEdit();
+  const steps = activeSteps(trackIndex);
+  const val = steps[stepIdx];
+  steps[stepIdx] = val ? 0 : 1;
   btn.classList.toggle('on', !val);
   // auto-repeat if length is active for this 64-step track
   if (getLen(trackIndex) < 64) {
     applyRepeat(trackIndex);
     refreshSteps(trackIndex);
   }
-  dirty = true;
-  updatePatternNav();
-}
-
-function updatePatternNav() {
-  const btns = document.querySelectorAll('#patternNav button');
-  btns.forEach(btn => {
-    const ptn = parseInt(btn.dataset.ptn);
-    btn.classList.toggle('has-data', patternHasData(ptn));
-  });
+  refreshThumb(trackIndex);
 }
 
 // --- File I/O ---
@@ -857,11 +1192,11 @@ document.getElementById('fileInput').addEventListener('change', (e) => {
   document.getElementById('filenameDisplay').textContent = file.name;
   const reader = new FileReader();
   reader.onload = (ev) => {
+    beginEdit();   // loading can be undone too
     parseFile(ev.target.result);
     dirty = false;
-    currentPattern = 0;
-    buildPatternNav();
     buildGrid();
+    refreshLibrary();
     showStatus(`Loaded ${file.name}`);
   };
   reader.readAsText(file);
@@ -881,41 +1216,292 @@ document.getElementById('saveBtn').addEventListener('click', () => {
   showStatus(`Saved ${filename}`);
 });
 
-// --- Copy/Paste/Clear ---
+// --- Copy/Paste/Clear per track ---
+function copyTrack(ti) {
+  trackClipboard = { steps: [...activeSteps(ti)], len: getLen(ti) };
+  showStatus(`Copied ${TRACKS[ti].name} pattern ${activePattern[ti]}`);
+}
+
+function pasteTrack(ti) {
+  if (!trackClipboard) { showStatus('Nothing to paste: use copy next to a track first'); return; }
+  const src = trackClipboard.steps;
+  const target = TRACKS[ti].steps;
+  let steps, len = trackClipboard.len, note = '';
+  if (src.length === target) {
+    steps = [...src];
+  } else if (src.length < target) {
+    // 16-step pattern into Kick/Snare: loop it
+    steps = Array.from({ length: target }, (_, i) => src[i % src.length]);
+    len = src.length;
+  } else {
+    steps = src.slice(0, target);
+    note = ` (first ${target} steps)`;
+  }
+  beginEdit();
+  setActiveSteps(ti, steps, len);
+  buildGrid();
+  refreshThumb(ti);
+  showStatus(`Pasted into ${TRACKS[ti].name} pattern ${activePattern[ti]}${note}`);
+}
+
+function clearTrack(ti) {
+  beginEdit();
+  setActiveSteps(ti, new Array(TRACKS[ti].steps).fill(0), getLen(ti));
+  buildGrid();
+  refreshThumb(ti);
+  showStatus(`Cleared ${TRACKS[ti].name} pattern ${activePattern[ti]}`);
+}
+
+// --- Copy/Paste/Clear all six shown patterns ---
 document.getElementById('copyBtn').addEventListener('click', () => {
-  clipboard = {
-    steps: TRACKS.map((_, ti) => [...data[ti][currentPattern]]),
-    lengths: TRACKS.map((_, ti) => getLen(ti)),
-  };
-  showStatus(`Copied pattern ${currentPattern}`);
+  setClipboard = TRACKS.map((_, ti) => ({ steps: [...activeSteps(ti)], len: getLen(ti) }));
+  showStatus(`Copied patterns ${activePattern.join(' / ')}`);
 });
 
 document.getElementById('pasteBtn').addEventListener('click', () => {
-  if (!clipboard) { showStatus('Nothing to paste'); return; }
-  TRACKS.forEach((_, ti) => {
-    data[ti][currentPattern] = [...clipboard.steps[ti]];
-    if (trackLength[ti]) trackLength[ti][currentPattern] = clipboard.lengths[ti];
-  });
-  dirty = true;
+  if (!setClipboard) { showStatus('Nothing to paste: use Copy all tracks first'); return; }
+  beginEdit();
+  TRACKS.forEach((_, ti) => setActiveSteps(ti, [...setClipboard[ti].steps], setClipboard[ti].len));
   buildGrid();
-  updatePatternNav();
-  showStatus(`Pasted to pattern ${currentPattern}`);
+  refreshLibrary();
+  showStatus(`Pasted into patterns ${activePattern.join(' / ')}`);
 });
 
 document.getElementById('clearBtn').addEventListener('click', () => {
-  TRACKS.forEach((track, ti) => {
-    data[ti][currentPattern] = new Array(track.steps).fill(0);
-  });
-  dirty = true;
+  beginEdit();
+  TRACKS.forEach((track, ti) => setActiveSteps(ti, new Array(track.steps).fill(0), getLen(ti)));
   buildGrid();
-  updatePatternNav();
-  showStatus(`Cleared pattern ${currentPattern}`);
+  refreshLibrary();
+  showStatus(`Cleared patterns ${activePattern.join(' / ')}`);
 });
 
-function showStatus(msg) {
+function showStatus(msg, isError = false) {
   const el = document.getElementById('status');
   el.textContent = msg;
-  setTimeout(() => { if (el.textContent === msg) el.textContent = ''; }, 3000);
+  el.style.color = isError ? '#e94560' : '';
+  setTimeout(() => { if (el.textContent === msg) el.textContent = ''; }, isError ? 6000 : 3000);
+}
+
+// --- Strudel mini-notation -> steps ---
+// Our own implementation of a subset of Strudel's mini-notation (https://strudel.cc).
+// One cycle = one 16-step bar; Kick and Snare render 4 cycles. Any word is a hit.
+
+function parseMini(src) {
+  // accept a whole Strudel call like s("bd sd") by using its first quoted string
+  const quoted = src.match(/["'`]([^"'`]*)["'`]/);
+  const text = quoted ? quoted[1] : src;
+  let pos = 0;
+  let seed = 0;
+  const fail = (msg) => { throw new Error(`${msg} (at character ${pos + 1})`); };
+  const peek = () => text[pos];
+  const skipSpace = () => { while (pos < text.length && /\s/.test(text[pos])) pos++; };
+  const number = () => {
+    const m = text.slice(pos).match(/^\d+(\.\d+)?/);
+    if (!m) fail('number expected');
+    pos += m[0].length;
+    return parseFloat(m[0]);
+  };
+  const integer = () => {
+    const n = number();
+    if (!Number.isInteger(n)) fail('whole number expected');
+    return n;
+  };
+
+  // comma-separated layers of weighted steps, up to the closing bracket
+  function sequence(close) {
+    const layers = [[]];
+    for (;;) {
+      skipSpace();
+      const ch = peek();
+      if (ch === undefined) {
+        if (close) fail(`missing '${close}'`);
+        return layers;
+      }
+      if (ch === close) { pos++; return layers; }
+      if (')]>'.includes(ch)) fail(`unexpected '${ch}'`);
+      const layer = layers[layers.length - 1];
+      if (ch === ',') { pos++; layers.push([]); continue; }
+      if (ch === '_' || ch === '!') {
+        pos++;
+        if (!layer.length) fail(`'${ch}' needs a step before it`);
+        const prev = layer[layer.length - 1];
+        if (ch === '_') { prev.weight++; continue; }
+        // a!3 = a a a, a ! = a a
+        const count = /\d/.test(peek() || '') ? integer() - 1 : 1;
+        for (let i = 0; i < count; i++) layer.push({ ...prev });
+        continue;
+      }
+      layer.push(term());
+    }
+  }
+
+  function term() {
+    const ch = peek();
+    let node;
+    if (ch === '[') { pos++; node = { type: 'seq', layers: sequence(']') }; }
+    else if (ch === '<') { pos++; node = { type: 'alt', layers: sequence('>') }; }
+    else if (ch === '~' || ch === '-') { pos++; node = { type: 'rest' }; }
+    else {
+      const m = text.slice(pos).match(/^[A-Za-z0-9#:]+[A-Za-z0-9#:_]*/);
+      if (!m) fail(`'${ch}' isn't supported`);
+      pos += m[0].length;
+      node = { type: 'hit' };
+    }
+    let weight = 1;
+    for (;;) {
+      const c = peek();
+      if (c === '*' || c === '/') {
+        pos++;
+        const n = number();
+        if (!(n > 0 && n <= 256)) fail(`'${c}' needs a number above 0, up to 256`);
+        node = { type: 'fast', n: c === '*' ? n : 1 / n, node };
+      } else if (c === '(') {
+        pos++;
+        const args = [];
+        for (;;) {
+          skipSpace();
+          args.push(integer());
+          skipSpace();
+          if (peek() === ',') { pos++; continue; }
+          if (peek() === ')') { pos++; break; }
+          fail("expected ',' or ')'");
+        }
+        if (args.length < 2 || args.length > 3 || args[1] < 1 || args[1] > 256) fail('use (hits,steps) or (hits,steps,rotation)');
+        node = { type: 'euclid', k: args[0], n: args[1], r: args[2] || 0, node };
+      } else if (c === '?') {
+        pos++;
+        const p = /\d/.test(peek() || '') ? number() : 0.5;
+        node = { type: 'degrade', p, seed: ++seed, node };
+      } else if (c === '@') {
+        pos++;
+        weight = number();
+      } else {
+        return { node, weight };
+      }
+    }
+  }
+
+  const root = { type: 'seq', layers: sequence(null) };
+  if (!root.layers.some(layer => layer.length)) fail('empty pattern');
+  return root;
+}
+
+// Bjorklund's algorithm, as in Tidal/Strudel: (3,8) -> x..x..x.
+function euclid(k, n, r) {
+  if (k <= 0) return new Array(n).fill(0);
+  if (k >= n) return new Array(n).fill(1);
+  let a = Array.from({ length: k }, () => [1]);
+  let b = Array.from({ length: n - k }, () => [0]);
+  while (b.length > 1) {
+    const m = Math.min(a.length, b.length);
+    const joined = a.slice(0, m).map((x, i) => x.concat(b[i]));
+    b = a.length > m ? a.slice(m) : b.slice(m);
+    a = joined;
+  }
+  const bits = a.concat(b).flat();
+  const s = ((-r % n) + n) % n;   // rotate right by r, like Strudel
+  return bits.slice(s).concat(bits.slice(0, s));
+}
+
+function pseudoRandom(x) {
+  const s = Math.sin(x) * 43758.5453;
+  return s - Math.floor(s);
+}
+
+// collect the hits ({ t: onset, d: length }, in cycles) of one cycle of node, placed into [start, start + dur)
+function renderMini(node, cycle, start, dur, out) {
+  switch (node.type) {
+    case 'hit':
+      out.push({ t: start, d: dur });
+      break;
+    case 'seq':
+      for (const layer of node.layers) {
+        const total = layer.reduce((sum, st) => sum + st.weight, 0);
+        let t = start;
+        for (const st of layer) {
+          const d = dur * st.weight / total;
+          renderMini(st.node, cycle, t, d, out);
+          t += d;
+        }
+      }
+      break;
+    case 'alt':
+      // one element per cycle; the chosen element sees every k-th cycle as its own
+      for (const layer of node.layers) {
+        if (!layer.length) continue;
+        renderMini(layer[cycle % layer.length].node, Math.floor(cycle / layer.length), start, dur, out);
+      }
+      break;
+    case 'fast': {
+      // render the inner cycles that overlap this span, keep what falls inside (handles /n too)
+      const d = dur / node.n;
+      const from = cycle * node.n;
+      const inner = [];
+      for (let j = Math.floor(from); j < (cycle + 1) * node.n; j++) {
+        renderMini(node.node, j, start + (j - from) * d, d, inner);
+      }
+      out.push(...inner.filter(ev => ev.t >= start - 1e-9 && ev.t < start + dur - 1e-9));
+      break;
+    }
+    case 'euclid': {
+      // like Strudel's struct: a hit on every rhythm slot where the inner pattern is sounding
+      const inner = [];
+      renderMini(node.node, cycle, start, dur, inner);
+      const d = dur / node.n;
+      euclid(node.k, node.n, node.r).forEach((hit, i) => {
+        const t = start + i * d;
+        if (hit && inner.some(ev => ev.t <= t + 1e-9 && t < ev.t + ev.d - 1e-9)) out.push({ t, d });
+      });
+      break;
+    }
+    case 'degrade': {
+      // deterministic, so the same text always gives the same pattern
+      const inner = [];
+      renderMini(node.node, cycle, start, dur, inner);
+      out.push(...inner.filter(ev => pseudoRandom(ev.t * 7919 + node.seed * 104729) >= node.p));
+      break;
+    }
+  }
+}
+
+function miniToSteps(src, stepCount) {
+  const root = parseMini(src);
+  const steps = new Array(stepCount).fill(0);
+  let snapped = 0;
+  for (let c = 0; c < stepCount / 16; c++) {
+    const hits = [];
+    renderMini(root, c, c, 1, hits);
+    for (const { t } of hits) {
+      const pos = t * 16;
+      const idx = Math.round(pos);
+      if (Math.abs(pos - idx) > 1e-6) snapped++;
+      steps[idx % stepCount] = 1;
+    }
+  }
+  return { steps, snapped };
+}
+
+function generateFromStrudel(ti, src) {
+  if (!src.trim()) return;
+  let result;
+  try {
+    result = miniToSteps(src, TRACKS[ti].steps);
+  } catch (e) {
+    showStatus(`Strudel: ${e.message}`, true);
+    return;
+  }
+  beginEdit();
+  setActiveSteps(ti, result.steps, inferLength(result.steps));
+  buildGrid();
+  refreshThumb(ti);
+  // keep typing where we were: the grid rebuild replaced the input
+  const input = document.querySelector(`.strudel-input[data-track="${ti}"]`);
+  if (input) {
+    input.focus();
+    input.setSelectionRange(input.value.length, input.value.length);
+  }
+  const note = result.snapped ? `, ${result.snapped} hit${result.snapped > 1 ? 's' : ''} moved to the nearest step` : '';
+  showStatus(`${TRACKS[ti].name} pattern ${activePattern[ti]}: generated from ${src.trim()}${note}`);
 }
 
 // --- Audio Engine ---
@@ -952,82 +1538,11 @@ function getStepDuration() {
   return 60 / getBPM() / 4;
 }
 
-// --- Stolperbeats shuffle / timing / feeling ---
-// Each shuffle: 8 normalized positions in [0..8) covering one half-bar (8 sixteenths).
-// Values are interpretations of the manual descriptions; tune to taste.
-const SHUFFLE_PATTERNS = {
-  4: [0, 1, 2, 3,    4,    5, 6, 7   ], // Even / unshuffled
-  5: [0, 1, 2, 3.4,  4.6,  5, 6, 7   ], // Wider gap in middle
-  6: [0, 1, 2, 3.65, 4.35, 5, 6, 7   ], // Fairly large gap in middle
-  7: [0, 1, 2, 3,    4,    5, 6, 6.55], // Last step rushed (earlier)
-  8: [0, 0.55, 1.45, 3,    4, 5.55, 6.45, 7], // Beginning and end rushed
-  9: [0, 1, 2, 3.25, 4.75, 5, 6, 7   ], // Mild gap in middle
-};
-
-let shuffleLevel = 4;
-let timingMode = 'straight';
-let feelingMode = 'tight';
-
-// Re-position a half-bar position [0..8) according to the timing mode.
-function applyTiming(pos) {
-  switch (timingMode) {
-    case 'shake': {
-      // 8th-note hip-hop swing: delay the 2nd 8th-note inside each beat (4 sixteenths).
-      const beat = Math.floor(pos / 4);
-      const inBeat = pos - beat * 4;
-      const swing = 0.5; // delay amount in sixteenths
-      return inBeat >= 2 ? beat * 4 + inBeat + swing : pos;
-    }
-    case 'trip': {
-      // Triplet feel: warp 4 sixteenths inside each beat into 3 triplet hits + a tail.
-      const beat = Math.floor(pos / 4);
-      const inBeat = pos - beat * 4;
-      const map = [0, 4 / 3, 8 / 3, 3.5, 4]; // 4th sixteenth tucked early as a fill
-      // interpolate between grid points so shuffled (fractional) positions keep their offset
-      const idx = Math.min(3, Math.floor(inBeat));
-      const frac = inBeat - idx;
-      return beat * 4 + map[idx] + frac * (map[idx + 1] - map[idx]);
-    }
-    case 'push': {
-      // Push: delay off-beat sixteenths to make room for the downbeat.
-      const beat = Math.floor(pos / 4);
-      const inBeat = pos - beat * 4;
-      return inBeat === 0 ? pos : beat * 4 + inBeat + 0.18;
-    }
-    case 'clave': {
-      // 3:3:2 — positions 0, 3, 6 are fixed; everything else swings around them.
-      const fixed = [0, 3, 6];
-      const nearest = Math.round(pos);
-      if (fixed.includes(nearest) && Math.abs(pos - nearest) < 0.01) return nearest;
-      return pos + 0.2;
-    }
-    default:
-      return pos;
-  }
-}
-
-// Normalized position of a step within its 16-step bar (0..16).
+// Position of a step within its 16-step bar (0..16). Straight 16ths for now: the module's
+// Shuffle/Timing/Feeling are much subtler than the manual's illustrations and will be added
+// here once measured from recordings.
 function getStepBarPos(stepInBar) {
-  const half = Math.floor(stepInBar / 8);
-  const i = stepInBar % 8;
-  const shuffled = SHUFFLE_PATTERNS[shuffleLevel][i];
-  return half * 8 + applyTiming(shuffled);
-}
-
-// Per-track delay (in seconds) for the Feeling mode.
-function getFeelingDelay(trackIndex) {
-  const stepDur = getStepDuration();
-  if (feelingMode === 'flam') {
-    // Kick (0) and Snare (1) very slightly delayed.
-    if (trackIndex === 0 || trackIndex === 1) return stepDur * 0.18;
-    return 0;
-  }
-  if (feelingMode === 'slop') {
-    // Like Flam, but Hihats follow Kick and Snare.
-    if (trackIndex >= 0 && trackIndex <= 3) return stepDur * 0.22;
-    return 0;
-  }
-  return 0;
+  return stepInBar;
 }
 
 // --- Synthesized drum sounds ---
@@ -1223,19 +1738,11 @@ function triggerVoice(ctx, ti, time) {
 
 function scheduleStep(stepIndex, time) {
   const ctx = getAudioCtx();
-  const stepDur = getStepDuration();
   TRACKS.forEach((track, ti) => {
     const s = track.steps === 16 ? stepIndex % 16 : stepIndex;
-    if (!data[ti][currentPattern][s]) return;
+    if (!activeSteps(ti)[s]) return;
     if (trackMuted[ti]) return;
-    const t = time + getFeelingDelay(ti);
-    // Rolls: Hihat 2 (track 3) becomes a 4-trigger burst.
-    if (feelingMode === 'rolls' && ti === 3) {
-      const burstGap = stepDur * 0.25;
-      for (let k = 0; k < 4; k++) triggerVoice(ctx, ti, t + k * burstGap);
-      return;
-    }
-    triggerVoice(ctx, ti, t);
+    triggerVoice(ctx, ti, time);
   });
 }
 
@@ -1306,18 +1813,6 @@ document.getElementById('bpmInput').addEventListener('change', (e) => {
   if (stepInBar === 15) barStartTime += 16 * stepDur;
 });
 
-document.getElementById('shuffleSel').addEventListener('change', (e) => {
-  shuffleLevel = parseInt(e.target.value);
-  showStatus(`Shuffle: ${e.target.options[e.target.selectedIndex].text}`);
-});
-document.getElementById('timingSel').addEventListener('change', (e) => {
-  timingMode = e.target.value;
-  showStatus(`Timing: ${timingMode}`);
-});
-document.getElementById('feelingSel').addEventListener('change', (e) => {
-  feelingMode = e.target.value;
-  showStatus(`Feeling: ${feelingMode}`);
-});
 
 // --- Visual playhead ---
 function updatePlayhead() {
@@ -1351,7 +1846,8 @@ document.addEventListener('dragover', (e) => {
   e.preventDefault();
   // Firefox can target text nodes, which have no closest()
   const el = e.target instanceof Element ? e.target : e.target.parentElement;
-  if (!el || !el.closest('.track-row')) e.dataTransfer.dropEffect = 'none';
+  // files may land on track rows, dragged pattern thumbnails only on thumbnails
+  if (!el || !el.closest(thumbDrag ? '.thumb' : '.track-row')) e.dataTransfer.dropEffect = 'none';
 });
 document.addEventListener('drop', (e) => { e.preventDefault(); });
 
@@ -1360,8 +1856,8 @@ window.addEventListener('beforeunload', (e) => {
 });
 
 // --- Init ---
-buildPatternNav();
 buildGrid();
+buildLibrary();
 loadSamplesFromDB();
 </script>
 </body>
