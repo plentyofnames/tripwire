@@ -345,7 +345,7 @@
   <b>Load / Save:</b> Load a Stolperbeats <code>.txt</code> pattern bank file, edit patterns, then save back to <code>.txt</code> for loading onto the hardware via SD card.<br>
   <b>Patterns:</b> Click the numbered buttons to switch between the 24 patterns. Buttons with a <span style="color:#53d769">green</span> underline contain data.<br>
   <b>Steps:</b> Click a step to toggle it on/off. Kick and Snare have 64 steps (shown as 4 rows of 16); HiHat and Perc tracks have 16 steps.<br>
-  <b>Track length:</b> Kick and Snare tracks can be set to shorter lengths (16/32/48) &mdash; extra steps are dimmed and the pattern loops at the set length.<br>
+  <b>Track length:</b> Kick and Snare tracks can be set to shorter lengths (4/8/16/32) &mdash; the remaining steps are dimmed and always hold repeats of the loop, which is what gets saved (the hardware plays all 64 steps). Loaded patterns that repeat every 16 or 32 steps open at that length. Shortening a track whose later steps differ asks before overwriting them.<br>
   <b>Mute:</b> Click the <b>M</b> button next to a track to mute it during playback.<br>
   <b>Choke:</b> HiHat1 and HiHat2 share a choke group &mdash; triggering one cuts off the other.<br>
   <b>Fill x4:</b> For 64-step tracks (Kick, Snare) &mdash; copies the first 16 steps into all remaining slots (17&ndash;64). <em>This overwrites whatever was in those slots</em>, so use it to quickly tile a 16-step idea across the full bar.<br>
@@ -365,7 +365,7 @@
   <details style="margin-top:10px">
     <summary style="cursor:pointer; color:#888">Shuffle parameters</summary>
     <div style="margin-top:6px; padding-left:10px; border-left:2px solid #0f3460;">
-      <b>Shuffle (4&ndash;9):</b> selects which of the 6 Stolperbeats shuffle patterns to use. Each rearranges the micro-timing of the 4 substeps within a beat.<br>
+      <b>Shuffle (4&ndash;9):</b> selects which of the 6 Stolperbeats shuffle patterns to use. Each shifts the micro-timing of the 8 sixteenths in every half bar.<br>
       <b>Timing:</b> Straight, Trip, Shake, Push, Clave &mdash; sets the rhythmic feel (triplet, swing, push, clave groove).<br>
       <b>Feeling:</b> Tight, Rolls, Flam, Slop &mdash; controls how precisely hits land on the grid.<br>
       <em>These parameters are for the audio preview only and are not saved in the exported <code>.txt</code> file &mdash; on the hardware, shuffle is set directly on the module.</em>
@@ -389,10 +389,13 @@ const NUM_PATTERNS = 24;
 let currentPattern = 0;
 let currentFilename = null;
 let clipboard = null;
+// unsaved edits since the last load/save
+let dirty = false;
 
-// length setting per 64-step track: default 64 (no repeat)
-// trackLength[trackIndex] only applies to tracks with 64 steps
-let trackLength = { 0: 64, 1: 64 };
+// loop length per 64-step track and pattern: trackLength[trackIndex][patternIndex].
+// Steps beyond the length always hold repeats of the loop (see applyRepeat),
+// so the dimmed steps are exactly what plays and what gets saved.
+let trackLength = {};
 
 // custom sample buffers per track (null = use synth)
 let sampleBuffers = [null, null, null, null, null, null];
@@ -461,6 +464,25 @@ function initData() {
   data = TRACKS.map(t =>
     Array.from({ length: NUM_PATTERNS }, () => new Array(t.steps).fill(0))
   );
+  trackLength = {};
+  TRACKS.forEach((t, ti) => {
+    if (t.steps === 64) trackLength[ti] = new Array(NUM_PATTERNS).fill(64);
+  });
+}
+
+// loop length of a track in a pattern (16-step tracks are always 16)
+function getLen(trackIndex, ptn = currentPattern) {
+  return TRACKS[trackIndex].steps === 64 ? trackLength[trackIndex][ptn] : TRACKS[trackIndex].steps;
+}
+
+// shortest bar multiple the steps actually repeat at; empty tracks stay at 64
+function inferLength(steps) {
+  if (!steps.includes(1)) return 64;
+  return [16, 32].find(len => isPeriodic(steps, len)) || 64;
+}
+
+function isPeriodic(steps, len) {
+  return steps.every((v, i) => v === steps[i % len]);
 }
 
 initData();
@@ -566,14 +588,18 @@ function buildTrackRow(track, trackIndex, group) {
   if (group === 0) {
     // first row: show track name + sample info
     if (sampleBuffers[trackIndex]) label.classList.add('has-sample');
-    label.innerHTML = track.name;
+    label.textContent = track.name;
     if (sampleNames[trackIndex]) {
-      label.innerHTML += `<span class="sample-name">${sampleNames[trackIndex]}</span>`;
+      const nameEl = document.createElement('span');
+      nameEl.className = 'sample-name';
+      nameEl.textContent = sampleNames[trackIndex];
+      label.appendChild(nameEl);
     }
-    label.title = sampleNames[trackIndex] ? `Sample: ${sampleNames[trackIndex]} (click to remove)` : 'Drag audio file here to load sample';
+    label.title = sampleNames[trackIndex] ? `Sample: ${sampleNames[trackIndex]} (right-click to remove)` : 'Drag audio file here to load sample';
     if (sampleBuffers[trackIndex]) {
-      label.style.cursor = 'pointer';
-      label.addEventListener('click', () => {
+      label.style.cursor = 'context-menu';
+      label.addEventListener('contextmenu', (e) => {
+        e.preventDefault();
         sampleBuffers[trackIndex] = null;
         sampleNames[trackIndex] = '';
         deleteSampleFromDB(trackIndex);
@@ -620,8 +646,7 @@ function buildTrackRow(track, trackIndex, group) {
     btn.className = 'step';
     if (s % 4 === 0) btn.classList.add('beat-marker');
     if (data[trackIndex][currentPattern][stepIdx]) btn.classList.add('on');
-    const len = (track.steps === 64) ? trackLength[trackIndex] : track.steps;
-    if (stepIdx >= len) btn.classList.add('dimmed');
+    if (stepIdx >= getLen(trackIndex)) btn.classList.add('dimmed');
     btn.dataset.track = trackIndex;
     btn.dataset.step = stepIdx;
     btn.addEventListener('mousedown', (e) => {
@@ -647,7 +672,7 @@ function buildTrackControls(track, trackIndex) {
   controls.className = 'track-controls';
 
   const fillBtn = document.createElement('button');
-  const len = trackLength[trackIndex];
+  const len = getLen(trackIndex);
   const reps = len / 16;
   if (reps >= 2) {
     fillBtn.textContent = `Fill x${reps}`;
@@ -677,13 +702,22 @@ function buildTrackControls(track, trackIndex) {
     const opt = document.createElement('option');
     opt.value = len;
     opt.textContent = len;
-    if (trackLength[trackIndex] === len) opt.selected = true;
+    if (getLen(trackIndex) === len) opt.selected = true;
     sel.appendChild(opt);
   });
   sel.addEventListener('change', () => {
-    trackLength[trackIndex] = parseInt(sel.value);
+    const newLen = parseInt(sel.value);
+    // shortening only loses data if the later steps aren't already repeats
+    if (!isPeriodic(data[trackIndex][currentPattern], newLen) &&
+        !confirm(`Shortening ${track.name} to ${newLen} steps overwrites steps ${newLen + 1}-64 with repeats of steps 1-${newLen}. Continue?`)) {
+      sel.value = getLen(trackIndex);
+      return;
+    }
+    trackLength[trackIndex][currentPattern] = newLen;
     applyRepeat(trackIndex);
+    dirty = true;
     buildGrid();
+    updatePatternNav();
   });
   controls.appendChild(sel);
 
@@ -691,11 +725,13 @@ function buildTrackControls(track, trackIndex) {
 }
 
 function fillFromFirst16(trackIndex) {
-  const len = trackLength[trackIndex];
+  const len = getLen(trackIndex);
   const steps = data[trackIndex][currentPattern];
-  for (let i = 16; i < len; i++) {
+  // fill all 64 so the dimmed repeats beyond a shorter length stay in sync
+  for (let i = 16; i < 64; i++) {
     steps[i] = steps[i % 16];
   }
+  dirty = true;
   buildGrid();
   updatePatternNav();
   const reps = len / 16;
@@ -703,12 +739,20 @@ function fillFromFirst16(trackIndex) {
 }
 
 function applyRepeat(trackIndex) {
-  const len = trackLength[trackIndex];
+  const len = getLen(trackIndex);
   if (len >= 64) return;
   const steps = data[trackIndex][currentPattern];
   for (let i = len; i < 64; i++) {
     steps[i] = steps[i % len];
   }
+}
+
+// sync step cells of one track with data, without rebuilding the grid (keeps drag-painting alive)
+function refreshSteps(trackIndex) {
+  const steps = data[trackIndex][currentPattern];
+  document.querySelectorAll(`.step[data-track="${trackIndex}"]`).forEach(el => {
+    el.classList.toggle('on', steps[parseInt(el.dataset.step)] === 1);
+  });
 }
 
 // --- Drag painting ---
@@ -724,11 +768,11 @@ function startDrag(trackIndex, btn) {
 function applyDrag(trackIndex, stepIdx, btn) {
   data[trackIndex][currentPattern][stepIdx] = dragging.value;
   btn.classList.toggle('on', dragging.value === 1);
-  if (TRACKS[trackIndex].steps === 64 && trackLength[trackIndex] < 64) {
+  if (getLen(trackIndex) < 64) {
     applyRepeat(trackIndex);
-    dragging = null;
-    buildGrid();
+    refreshSteps(trackIndex);
   }
+  dirty = true;
   updatePatternNav();
 }
 
@@ -739,11 +783,11 @@ function toggleStep(trackIndex, stepIdx, btn) {
   data[trackIndex][currentPattern][stepIdx] = val ? 0 : 1;
   btn.classList.toggle('on', !val);
   // auto-repeat if length is active for this 64-step track
-  if (TRACKS[trackIndex].steps === 64 && trackLength[trackIndex] < 64) {
+  if (getLen(trackIndex) < 64) {
     applyRepeat(trackIndex);
-    dragging = null;
-    buildGrid();
+    refreshSteps(trackIndex);
   }
+  dirty = true;
   updatePatternNav();
 }
 
@@ -784,6 +828,9 @@ function parseFile(text) {
       }
     }
   }
+  for (const ti in trackLength) {
+    trackLength[ti] = data[ti].map(inferLength);
+  }
 }
 
 function generateFile() {
@@ -811,6 +858,7 @@ document.getElementById('fileInput').addEventListener('change', (e) => {
   const reader = new FileReader();
   reader.onload = (ev) => {
     parseFile(ev.target.result);
+    dirty = false;
     currentPattern = 0;
     buildPatternNav();
     buildGrid();
@@ -829,20 +877,26 @@ document.getElementById('saveBtn').addEventListener('click', () => {
   a.download = filename;
   a.click();
   URL.revokeObjectURL(a.href);
+  dirty = false;
   showStatus(`Saved ${filename}`);
 });
 
 // --- Copy/Paste/Clear ---
 document.getElementById('copyBtn').addEventListener('click', () => {
-  clipboard = TRACKS.map((_, ti) => [...data[ti][currentPattern]]);
+  clipboard = {
+    steps: TRACKS.map((_, ti) => [...data[ti][currentPattern]]),
+    lengths: TRACKS.map((_, ti) => getLen(ti)),
+  };
   showStatus(`Copied pattern ${currentPattern}`);
 });
 
 document.getElementById('pasteBtn').addEventListener('click', () => {
   if (!clipboard) { showStatus('Nothing to paste'); return; }
   TRACKS.forEach((_, ti) => {
-    data[ti][currentPattern] = [...clipboard[ti]];
+    data[ti][currentPattern] = [...clipboard.steps[ti]];
+    if (trackLength[ti]) trackLength[ti][currentPattern] = clipboard.lengths[ti];
   });
+  dirty = true;
   buildGrid();
   updatePatternNav();
   showStatus(`Pasted to pattern ${currentPattern}`);
@@ -852,6 +906,7 @@ document.getElementById('clearBtn').addEventListener('click', () => {
   TRACKS.forEach((track, ti) => {
     data[ti][currentPattern] = new Array(track.steps).fill(0);
   });
+  dirty = true;
   buildGrid();
   updatePatternNav();
   showStatus(`Cleared pattern ${currentPattern}`);
@@ -886,8 +941,11 @@ function getAudioCtx() {
   return audioCtx;
 }
 
+// committed tempo; only updated on 'change' so half-typed values never reach the scheduler
+let bpm = 120;
+
 function getBPM() {
-  return parseInt(document.getElementById('bpmInput').value) || 120;
+  return bpm;
 }
 
 function getStepDuration() {
@@ -924,9 +982,11 @@ function applyTiming(pos) {
       // Triplet feel: warp 4 sixteenths inside each beat into 3 triplet hits + a tail.
       const beat = Math.floor(pos / 4);
       const inBeat = pos - beat * 4;
-      const map = [0, 4 / 3, 8 / 3, 3.5]; // 4th sixteenth tucked early as a fill
+      const map = [0, 4 / 3, 8 / 3, 3.5, 4]; // 4th sixteenth tucked early as a fill
+      // interpolate between grid points so shuffled (fractional) positions keep their offset
       const idx = Math.min(3, Math.floor(inBeat));
-      return beat * 4 + map[idx];
+      const frac = inBeat - idx;
+      return beat * 4 + map[idx] + frac * (map[idx + 1] - map[idx]);
     }
     case 'push': {
       // Push: delay off-beat sixteenths to make room for the downbeat.
@@ -1232,13 +1292,18 @@ document.getElementById('playBtn').addEventListener('click', () => {
   else startPlayback();
 });
 
-// reset timing on BPM change during playback
-document.getElementById('bpmInput').addEventListener('input', () => {
-  if (isPlaying) {
-    barStartTime = getAudioCtx().currentTime;
-    currentPlayStep = -1;
-    stepQueue = [];
-  }
+// BPM change: clamp to the input's range, then re-anchor the bar so playback carries on from the last scheduled step
+document.getElementById('bpmInput').addEventListener('change', (e) => {
+  const val = parseInt(e.target.value);
+  if (val) bpm = Math.min(999, Math.max(40, val));
+  e.target.value = bpm;
+  const last = stepQueue[stepQueue.length - 1];
+  if (!isPlaying || !last) return;
+  const stepDur = getStepDuration();
+  const stepInBar = last.step % 16;
+  barStartTime = last.time - getStepBarPos(stepInBar) * stepDur;
+  // the scheduler already moved barStartTime to the next bar after step 15
+  if (stepInBar === 15) barStartTime += 16 * stepDur;
 });
 
 document.getElementById('shuffleSel').addEventListener('change', (e) => {
@@ -1270,10 +1335,7 @@ function updatePlayhead() {
   document.querySelectorAll('.step').forEach(el => {
     const ti = parseInt(el.dataset.track);
     const si = parseInt(el.dataset.step);
-    const track = TRACKS[ti];
-    let len = track.steps;
-    if (track.steps === 64 && trackLength[ti] < 64) len = trackLength[ti];
-    const activeStep = displayStep % len;
+    const activeStep = displayStep % getLen(ti);
     if (si === activeStep) el.classList.add('playing');
   });
   requestAnimationFrame(updatePlayhead);
@@ -1282,6 +1344,20 @@ function updatePlayhead() {
 function clearPlayhead() {
   document.querySelectorAll('.step.playing').forEach(el => el.classList.remove('playing'));
 }
+
+// --- Page guards ---
+// a file dropped outside a track row would otherwise make the browser open it in place of the editor
+document.addEventListener('dragover', (e) => {
+  e.preventDefault();
+  // Firefox can target text nodes, which have no closest()
+  const el = e.target instanceof Element ? e.target : e.target.parentElement;
+  if (!el || !el.closest('.track-row')) e.dataTransfer.dropEffect = 'none';
+});
+document.addEventListener('drop', (e) => { e.preventDefault(); });
+
+window.addEventListener('beforeunload', (e) => {
+  if (dirty) { e.preventDefault(); e.returnValue = ''; }
+});
 
 // --- Init ---
 buildPatternNav();
